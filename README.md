@@ -1,19 +1,46 @@
-# CK Video Compressor
+<p align="center">
+  <img src="docs/icon.png" width="96" height="96" alt="CK Video Compressor icon">
+</p>
 
-Shrink videos with FFmpeg: pick a profile or a size limit, see the predicted size, and compress one or many.
+<h1 align="center">CK Video Compressor</h1>
 
-Part of the **CK Suite**, a set of small, free Windows tools.
+<p align="center">
+  Shrink videos with FFmpeg: pick a profile or a size limit, see the predicted size, and compress one or many.<br>
+  Built-in trim, fast presets, custom limits, and full Light & Dark mode support.
+</p>
 
-![CK Video Compressor](docs/screenshot.png)
+<p align="center">
+  <a href="https://github.com/project-ceekay/ck-video-compressor/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/project-ceekay/ck-video-compressor?label=release&color=0067c0"></a>
+  <a href="https://github.com/project-ceekay/ck-video-compressor/releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/project-ceekay/ck-video-compressor/total?color=0067c0"></a>
+  <img alt="Windows 10 and 11" src="https://img.shields.io/badge/Windows-10%20%7C%2011-0067c0">
+  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-0067c0"></a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/project-ceekay/ck-video-compressor/releases/latest"><b>Download</b></a> ·
+  <a href="https://cksoftware.netlify.app/video-compressor.html">Website</a> ·
+  <a href="CHANGELOG.md">What's new</a> ·
+  <a href="https://cksoftware.netlify.app/">More CK Software</a>
+</p>
+
+<p align="center">
+  <img src="docs/screenshot.png" alt="CK Video Compressor in Light Mode" width="49%">
+  <img src="docs/screenshot-dark.png" alt="CK Video Compressor in Dark Mode" width="49%">
+</p>
+
+Part of the **CK Suite**, a set of small, free Windows tools by [CK Software](https://cksoftware.netlify.app/).
 
 ## Features
 
-- Batch queue: drop videos or folders
-- Profiles: Balanced, Fastest (hardware encoder when available), Smallest file (AV1 / HEVC), Super Compressed (under 20 MB)
-- One-click size limits: Discord 10 MB, WhatsApp 16 MB, Email 25 MB or custom (2-pass encoding)
-- Trim the start and end of each video; predicted size and time update live
-- Scale down to 1080p / 720p / 480p / 360p, change or remove audio, MP4 or MKV
-
+- **Batch queue:** Drop videos or whole folders anywhere onto the window.
+- **Top Menu Bar & Toolbar:** Classic menus (`File`, `Edit`, `View`, `Profiles`, `Help`) and a 2×-supersampled procedural icon toolbar with hover tooltips and instant feedback.
+- **Light & Dark Mode:** Full native dark theme styling title bars, menus, toolbar, panels, queue list, and activity log.
+- **Profiles:** Balanced, Fastest (hardware encoder when available), Smallest file (AV1 / HEVC), Super Compressed (under 20 MB).
+- **One-click size limits:** Discord 10 MB, WhatsApp 16 MB, Email 25 MB or custom (2-pass encoding).
+- **Trim:** Trim start and end of any clip; predicted size and time update live.
+- **Scale & Audio:** Scale down to 1080p / 720p / 480p / 360p, change bitrate or strip audio; MP4 or MKV output.
+- **Full-height column gridlines:** Dynamic vertical dividers keep columns clear and easy to read.
+- **Built-in updates:** Checks GitHub once a day and installs new versions quietly with settings preserved.
 
 FFmpeg is included in the installer, so there's nothing else to install.
 
@@ -31,7 +58,7 @@ get the `…-Setup.exe` file under *Assets* and run it.
 
 1. Drop videos onto the window.
 2. Pick a profile or a size limit (and trim if you like).
-3. Click **Compress All**.
+3. Click **Compress All** (or press `Ctrl+Enter` / `F5`).
 
 ## Updates
 

@@ -35,688 +35,15 @@ from tkinter import filedialog, messagebox, ttk
 
 from PIL import Image, ImageDraw, ImageTk
 
+import ui_kit
+from ui_kit import *
+
 APP_NAME = "CK Video Compressor"
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 REPO = "project-ceekay/ck-video-compressor"
 SETTINGS_NAME = "Video Compressor"  # %APPDATA%\CK Suite\<this>
+ui_kit.VERSION = VERSION
 
-# ======================================================================= CK UI kit
-# The shared CK Suite look (native Windows ttk, polished). Each program carries its own
-# copy so it compiles on its own.
-ACCENT = "#0067c0"      # Windows 11 accent blue
-ERROR = "#c42b1c"
-SUCCESS = "#0f7b0f"
-WARN = "#9d5d00"
-MUTED = "#5f6368"
-HEADER_BG = "#ffffff"
-BORDER = "#d9d9d9"
-HOVER = "#e5f1fb"
-SCALE = 1.0  # screen scaling (1.0 at 100%); set by init_window()
-
-
-def px(n):
-    """n pixels at 100% scaling, converted to this screen's scaling."""
-    return round(n * SCALE)
-
-
-def app_dir():
-    """Folder of the exe when compiled, otherwise of this script."""
-    if getattr(sys, "frozen", False):
-        return os.path.dirname(sys.executable)
-    return os.path.dirname(os.path.abspath(__file__))
-
-
-def open_path(path):
-    try:
-        if sys.platform.startswith("win"):
-            os.startfile(path)
-        else:
-            subprocess.Popen(["open" if sys.platform == "darwin" else "xdg-open", path])
-    except Exception:
-        pass
-
-
-def reveal(path):
-    """Open the folder with the file selected."""
-    try:
-        if sys.platform.startswith("win"):
-            subprocess.Popen(["explorer", "/select,", os.path.normpath(path)])
-        else:
-            open_path(os.path.dirname(path))
-    except Exception:
-        pass
-
-
-def human_size(n):
-    n = float(n)
-    for unit in ("B", "KB", "MB", "GB"):
-        if n < 1024 or unit == "GB":
-            return f"{n:.0f} {unit}" if unit == "B" else f"{n:.1f} {unit}"
-        n /= 1024
-
-
-def load_json(path, default):
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return data if isinstance(data, type(default)) else default
-    except Exception:
-        return default
-
-
-def save_json(path, data):
-    try:
-        tmp = path + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2)
-        os.replace(tmp, path)
-        return True
-    except OSError:
-        return False
-
-
-def icon_base(size):
-    """(image, draw, unit) with the blue rounded square every CK icon starts from."""
-    s = size / 64
-    im = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    d = ImageDraw.Draw(im)
-    d.rounded_rectangle([4 * s, 4 * s, 60 * s, 60 * s], radius=12 * s, fill=ACCENT)
-    return im, d, s
-
-
-def save_icon(make_icon, path):
-    make_icon(256).save(path, sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
-
-
-def init_window(root, title, size, minsize, make_icon):
-    """DPI awareness must already be on. Sets scaling, size (capped to the screen), icon, style."""
-    global SCALE
-    SCALE = root.winfo_fpixels("1i") / 96
-    root.title(title)
-    h = min(px(size[1]), root.winfo_screenheight() - px(80))
-    root.geometry(f"{px(size[0])}x{h}")
-    root.minsize(px(minsize[0]), min(px(minsize[1]), h))
-    root._icon = ImageTk.PhotoImage(make_icon(64))
-    root.iconphoto(True, root._icon)
-    style = ttk.Style(root)
-    if "vista" in style.theme_names():
-        style.theme_use("vista")
-    if sys.platform.startswith("win"):
-        for name in ("TkDefaultFont", "TkTextFont", "TkMenuFont", "TkHeadingFont", "TkCaptionFont"):
-            try:
-                tkfont.nametofont(name).configure(family="Segoe UI", size=10)
-            except tk.TclError:
-                pass
-    line = tkfont.nametofont("TkDefaultFont").metrics("linespace")
-    style.configure("Go.TButton", font=("Segoe UI Semibold", 10), padding=(px(20), px(6)))
-    style.configure("Footer.TButton", padding=(px(14), px(6)))
-    style.configure("Toolbutton", padding=(px(10), px(3)))
-    style.configure("Section.TLabelframe.Label", font=("Segoe UI Semibold", 10), foreground=ACCENT)
-    style.configure("Muted.TLabel", foreground=MUTED)
-    style.configure("Error.TLabel", foreground=ERROR)
-    style.configure("Success.TLabel", foreground=SUCCESS)
-    style.configure("Warn.TLabel", foreground=WARN)
-    style.configure("Invalid.TEntry", foreground=ERROR)
-    style.configure("Treeview", rowheight=line + px(10))
-    style.configure("Treeview.Heading", font=("Segoe UI Semibold", 10))
-    style.configure("TNotebook.Tab", padding=(px(10), px(4)))
-    # the mouse wheel scrolls whichever ScrollFrame is under the pointer; number boxes and
-    # drop-downs shouldn't change value just because the wheel passes over them
-    root.bind_all("<MouseWheel>", lambda e: _on_wheel(root, e))
-    for cls in ("TSpinbox", "TCombobox"):
-        root.unbind_class(cls, "<MouseWheel>")
-
-
-def enable_dpi_awareness():
-    """Tell Windows we draw at real resolution, so text is sharp instead of stretched."""
-    if sys.platform.startswith("win"):
-        try:
-            import ctypes
-            ctypes.windll.shcore.SetProcessDpiAwareness(1)
-        except Exception:
-            pass
-
-
-def build_header(root, title, subtitle):
-    header = tk.Frame(root, bg=HEADER_BG)
-    header.pack(fill="x")
-    tk.Label(header, text=title, bg=HEADER_BG, fg="#1a1a1a",
-             font=("Segoe UI Semibold", 16)).pack(anchor="w", padx=px(20), pady=(px(14), 0))
-    tk.Label(header, text=subtitle, bg=HEADER_BG, fg=MUTED,
-             font=("Segoe UI", 10)).pack(anchor="w", padx=px(20), pady=(0, px(14)))
-    ttk.Separator(root).pack(fill="x")
-
-
-class Footer(ttk.Frame):
-    """Bottom bar: status (+ progress while busy) on the left, buttons added on the right.
-    Create it before the body so it always stays visible."""
-
-    def __init__(self, root):
-        super().__init__(root, padding=(px(20), px(10)))
-        self.pack(side="bottom", fill="x")
-        ttk.Separator(root).pack(side="bottom", fill="x")
-        self.progress = ttk.Progressbar(self, length=px(160), maximum=100)
-        self.status = ttk.Label(self, text="Ready", style="Muted.TLabel")
-        self.status.pack(side="left")
-
-    def button(self, text, command, primary=False, **kw):
-        b = ttk.Button(self, text=text, command=command, style="Go.TButton" if primary else "Footer.TButton",
-                       default="active" if primary else "normal", **kw)
-        b.pack(side="right", padx=(px(8), 0))
-        return b
-
-    def set_status(self, text, kind="muted"):
-        self.status.configure(text=text, style={"muted": "Muted.TLabel", "error": "Error.TLabel",
-                                                "ok": "Success.TLabel", "warn": "Warn.TLabel"}[kind])
-
-    def set_progress(self, value):
-        """0..100 shows the bar at that point; None hides it."""
-        if value is None:
-            self.progress.pack_forget()
-            return
-        if not self.progress.winfo_ismapped():
-            self.progress.pack(side="left", padx=(0, px(12)), before=self.status)
-        self.progress.configure(value=value)
-
-
-def section(parent, text, **pack):
-    box = ttk.Labelframe(parent, text=text, style="Section.TLabelframe", padding=px(10))
-    box.pack(**(pack or {"fill": "x", "pady": (0, px(10))}))
-    return box
-
-
-def hint(parent, text, wrap=380, grid=None, **pack):
-    """A muted explanatory line. Packed by default; pass grid={...} for grid layouts."""
-    lbl = ttk.Label(parent, text=text, style="Muted.TLabel", wraplength=px(wrap), justify="left")
-    if grid is not None:
-        lbl.grid(**grid)
-    else:
-        lbl.pack(anchor="w", **(pack or {"pady": (px(2), 0)}))
-    return lbl
-
-
-def segmented(parent, values, var, command=None):
-    """A row of toggle buttons that work like radio buttons. values: list or (value, text) pairs."""
-    row = ttk.Frame(parent)
-    for v in values:
-        value, text = v if isinstance(v, tuple) else (v, v)
-        ttk.Radiobutton(row, text=text, value=value, variable=var, style="Toolbutton",
-                        command=command).pack(side="left", padx=(0, px(2)))
-    return row
-
-
-def path_row(parent, row, label, var, browse, button="Browse…"):
-    """Label / entry / button on one grid row of parent (column 1 stretches)."""
-    ttk.Label(parent, text=label).grid(row=row, column=0, sticky="w", pady=px(3))
-    ttk.Entry(parent, textvariable=var).grid(row=row, column=1, sticky="ew", padx=px(8), pady=px(3))
-    ttk.Button(parent, text=button, command=browse).grid(row=row, column=2, pady=px(3))
-    parent.columnconfigure(1, weight=1)
-
-
-class ScrollFrame(ttk.Frame):
-    """A frame whose contents scroll vertically. Put widgets in .body."""
-
-    def __init__(self, master, padding=0):
-        super().__init__(master)
-        bg = ttk.Style().lookup("TFrame", "background") or "#f0f0f0"
-        self.canvas = tk.Canvas(self, highlightthickness=0, borderwidth=0, bg=bg, yscrollincrement=px(20))
-        bar = ttk.Scrollbar(self, orient="vertical", command=self.canvas.yview)
-
-        def set_bar(lo, hi):  # the scrollbar only shows when the contents don't fit
-            if float(lo) <= 0 and float(hi) >= 1:
-                bar.pack_forget()
-            elif not bar.winfo_ismapped():
-                bar.pack(side="right", fill="y", before=self.canvas)
-            bar.set(lo, hi)
-
-        self.canvas.configure(yscrollcommand=set_bar)
-        self.body = ttk.Frame(self.canvas, padding=padding)
-        win = self.canvas.create_window(0, 0, window=self.body, anchor="nw")
-        self.canvas.pack(side="left", fill="both", expand=True)
-        self.body.bind("<Configure>", lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all")))
-        self.canvas.bind("<Configure>", lambda e: self.canvas.itemconfigure(win, width=e.width))
-
-    def scroll(self, delta):
-        if self.canvas.yview() != (0.0, 1.0):
-            steps = -delta / 120 * 3
-            self.canvas.yview_scroll(int(steps) or (1 if steps > 0 else -1), "units")
-
-
-def _on_wheel(root, e):
-    w = root.winfo_containing(e.x_root, e.y_root)
-    while w is not None:
-        if isinstance(w, (tk.Listbox, tk.Text, ttk.Treeview)):
-            return  # these scroll themselves
-        if isinstance(w, ScrollFrame):
-            w.scroll(e.delta)
-            return
-        w = w.master
-
-
-class SliderRow(ttk.Frame):
-    """Label, slider and a number box you can type into. Double-click the slider to reset.
-    Works in whole numbers, or in steps of `step` (e.g. 0.1) when given."""
-
-    def __init__(self, master, text, lo, hi, value, on_change, step=1, label_width=16):
-        super().__init__(master)
-        self.on_change = on_change
-        self.lo, self.hi, self.step, self.default = lo, hi, step, value
-        self.value = value
-        self._setting = False
-        ttk.Label(self, text=text, width=label_width).grid(row=0, column=0, sticky="w")
-        self.scale = ttk.Scale(self, from_=lo, to=hi, command=self._moved)
-        self.scale.grid(row=0, column=1, sticky="ew", padx=(px(4), px(8)))
-        self.spin_var = tk.StringVar()
-        spin = ttk.Spinbox(self, from_=lo, to=hi, increment=step, textvariable=self.spin_var, width=6,
-                           command=self._typed)
-        spin.grid(row=0, column=2)
-        spin.bind("<Return>", self._typed)
-        spin.bind("<FocusOut>", self._typed)
-        self.scale.bind("<Double-Button-1>", lambda e: self.after_idle(self.reset))
-        self.columnconfigure(1, weight=1)
-        self.set(value)
-
-    def _snap(self, v):
-        v = round(round(float(v) / self.step) * self.step, 6)
-        v = max(self.lo, min(self.hi, v))
-        return int(v) if self.step >= 1 else v
-
-    def _text(self, v):
-        return str(v) if self.step >= 1 else f"{v:g}"
-
-    def _moved(self, v):
-        if self._setting:
-            return
-        n = self._snap(v)
-        if abs(float(v) - n) > 1e-9:
-            self._set_scale(n)
-        if n != self.value:
-            self.value = n
-            self.spin_var.set(self._text(n))
-            self.on_change()
-
-    def _typed(self, *_):
-        try:
-            n = self._snap(self.spin_var.get())
-        except ValueError:
-            self.spin_var.set(self._text(self.value))
-            return
-        if n != self.value:
-            self.set(n)
-            self.on_change()
-        else:
-            self.spin_var.set(self._text(n))
-
-    def _set_scale(self, v):
-        self._setting = True
-        try:
-            self.scale.set(v)
-        finally:
-            self._setting = False
-
-    def reset(self):
-        if self.value != self.default:
-            self.set(self.default)
-            self.on_change()
-
-    def get(self):
-        return self.value
-
-    def set(self, v):
-        self.value = self._snap(v)
-        self._set_scale(self.value)
-        self.spin_var.set(self._text(self.value))
-
-    def enable(self, on):
-        for w in self.winfo_children():
-            try:
-                w.state(["!disabled"] if on else ["disabled"])
-            except (AttributeError, tk.TclError):
-                pass
-
-
-class LogBox(ttk.Frame):
-    """A read-only, timestamped activity log."""
-
-    def __init__(self, master, height=6):
-        super().__init__(master)
-        self.text = tk.Text(self, height=height, wrap="word", state="disabled", font=("Consolas", 9),
-                            relief="flat", borderwidth=0, bg="#fbfbfb", padx=px(6), pady=px(4),
-                            highlightthickness=1, highlightbackground=BORDER, highlightcolor=BORDER)
-        sb = ttk.Scrollbar(self, command=self.text.yview)
-        self.text.configure(yscrollcommand=sb.set)
-        self.text.pack(side="left", fill="both", expand=True)
-        sb.pack(side="right", fill="y")
-        self.text.tag_configure("error", foreground=ERROR)
-        self.text.tag_configure("ok", foreground=SUCCESS)
-        self.text.tag_configure("warn", foreground=WARN)
-
-    def log(self, msg, tag=None):
-        self.text.configure(state="normal")
-        self.text.insert("end", f"[{time.strftime('%H:%M:%S')}] {msg}\n", tag)
-        self.text.see("end")
-        self.text.configure(state="disabled")
-
-
-def make_tree(parent, columns, height=6, selectmode="extended"):
-    """columns: list of (id, heading, width, stretch). Returns a Treeview with a scrollbar."""
-    frame = ttk.Frame(parent)
-    tree = ttk.Treeview(frame, columns=[c[0] for c in columns], show="headings", height=height,
-                        selectmode=selectmode)
-    for cid, text, width, stretch in columns:
-        tree.heading(cid, text=text, anchor="w")
-        tree.column(cid, width=px(width), minwidth=px(40), stretch=stretch, anchor="w")
-    sb = ttk.Scrollbar(frame, command=tree.yview)
-    tree.configure(yscrollcommand=sb.set)
-    tree.pack(side="left", fill="both", expand=True)
-    sb.pack(side="right", fill="y")
-    tree.tag_configure("pending", foreground=MUTED)
-    tree.tag_configure("working", foreground=ACCENT)
-    tree.tag_configure("error", foreground=ERROR)
-    tree.tag_configure("done", foreground=SUCCESS)
-    frame.tree = tree
-    return frame
-
-
-def enable_file_drop(widget, on_drop):
-    """Windows only: on_drop(paths) is called when files are dragged onto widget's window.
-    Uses the classic WM_DROPFILES message directly, so no extra package is needed."""
-    if not sys.platform.startswith("win"):
-        return
-    try:
-        import ctypes
-        from ctypes import wintypes
-        user32, shell32 = ctypes.windll.user32, ctypes.windll.shell32
-        LRESULT = ctypes.c_ssize_t
-        WNDPROC = ctypes.WINFUNCTYPE(LRESULT, wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM)
-        user32.SetWindowLongPtrW.restype = ctypes.c_void_p
-        user32.SetWindowLongPtrW.argtypes = [wintypes.HWND, ctypes.c_int, ctypes.c_void_p]
-        user32.CallWindowProcW.restype = LRESULT
-        user32.CallWindowProcW.argtypes = [ctypes.c_void_p, wintypes.HWND, wintypes.UINT,
-                                           wintypes.WPARAM, wintypes.LPARAM]
-        shell32.DragQueryFileW.restype = wintypes.UINT
-        shell32.DragQueryFileW.argtypes = [ctypes.c_void_p, wintypes.UINT, wintypes.LPWSTR, wintypes.UINT]
-        shell32.DragFinish.argtypes = [ctypes.c_void_p]
-        shell32.DragAcceptFiles.argtypes = [wintypes.HWND, wintypes.BOOL]
-        WM_DROPFILES, GWLP_WNDPROC = 0x0233, -4
-        hwnd = widget.winfo_id()
-        drops = queue.Queue()
-
-        def proc(h, msg, wparam, lparam):
-            if msg == WM_DROPFILES:
-                paths = []
-                for i in range(shell32.DragQueryFileW(wparam, 0xFFFFFFFF, None, 0)):
-                    size = shell32.DragQueryFileW(wparam, i, None, 0) + 1
-                    buf = ctypes.create_unicode_buffer(size)
-                    shell32.DragQueryFileW(wparam, i, buf, size)
-                    paths.append(buf.value)
-                shell32.DragFinish(wparam)
-                drops.put(paths)  # never call Tk from in here (it crashes Python)
-                return 0
-            return user32.CallWindowProcW(old_proc, h, msg, wparam, lparam)
-
-        widget._drop_proc = WNDPROC(proc)  # must stay referenced while the window exists
-        shell32.DragAcceptFiles(hwnd, True)
-        old_proc = user32.SetWindowLongPtrW(hwnd, GWLP_WNDPROC, ctypes.cast(widget._drop_proc, ctypes.c_void_p))
-
-        def check():
-            while not drops.empty():
-                on_drop(drops.get())
-            widget.after(150, check)
-
-        check()
-    except Exception:
-        pass  # drag and drop is a convenience; the Browse buttons still work
-
-
-def expand_drop(paths, exts):
-    """Dropped files and the matching files inside dropped folders, filtered by extension."""
-    out = []
-    for p in paths:
-        if os.path.isdir(p):
-            for root_, _, files in os.walk(p):
-                out += [os.path.join(root_, f) for f in sorted(files) if f.lower().endswith(exts)]
-        elif p.lower().endswith(exts):
-            out.append(p)
-    return [os.path.normpath(p) for p in out]
-
-
-NO_WINDOW = {"creationflags": 0x08000000} if sys.platform.startswith("win") else {}
-
-
-def find_tool(name):
-    """ffmpeg/ffprobe/ffplay: next to the program (or its bin folder) first, then PATH."""
-    exe = name + (".exe" if sys.platform.startswith("win") else "")
-    for d in (app_dir(), os.path.join(app_dir(), "bin")):
-        p = os.path.join(d, exe)
-        if os.path.isfile(p):
-            return p
-    return shutil.which(name)
-# ---------------------------------------------------------------- settings & updates
-# Each program defines APP_NAME, VERSION, REPO ("owner/name") and SETTINGS_NAME before this block.
-import re as _re
-import tempfile as _tempfile
-import urllib.error as _urlerror
-import urllib.request as _urlrequest
-import webbrowser as _webbrowser
-
-
-def data_dir():
-    """Per-user settings folder: %APPDATA%\\CK Suite\\<SETTINGS_NAME>."""
-    base = os.environ.get("APPDATA") or os.path.expanduser("~")
-    path = os.path.join(base, "CK Suite", SETTINGS_NAME)
-    os.makedirs(path, exist_ok=True)
-    return path
-
-
-def settings_file(old_paths=(), name="config.json"):
-    """data_dir()/name; the first existing old location is copied over once."""
-    path = os.path.join(data_dir(), name)
-    if not os.path.exists(path):
-        for old in old_paths:
-            if old and os.path.isfile(old):
-                try:
-                    shutil.copy2(old, path)
-                except OSError:
-                    pass
-                break
-    return path
-
-
-def version_tuple(text):
-    return tuple(int(x) for x in _re.findall(r"\d+", text)[:3]) or (0,)
-
-
-def latest_release():
-    """{'version', 'notes', 'url', 'page'} of the newest GitHub release; {} if none yet."""
-    req = _urlrequest.Request(f"https://api.github.com/repos/{REPO}/releases/latest",
-                              headers={"User-Agent": "CK-Suite-Updater", "Accept": "application/vnd.github+json"})
-    try:
-        with _urlrequest.urlopen(req, timeout=10) as r:
-            data = json.load(r)
-    except _urlerror.HTTPError as e:
-        if e.code == 404:
-            return {}
-        raise
-    asset = next((a for a in data.get("assets", []) if a["name"].lower().endswith("setup.exe")), None)
-    return {"version": data.get("tag_name", "").lstrip("v"), "notes": data.get("body") or "",
-            "url": asset["browser_download_url"] if asset else None, "page": data.get("html_url")}
-
-
-class Updater:
-    """About box + daily update check + one-click install, living in the footer `bar`.
-    status(text, kind) / progress(0..100 or None) report to the window; quit() saves and closes it."""
-
-    def __init__(self, root, bar, cfg, make_icon, status, progress, quit):
-        self.root, self.cfg, self.make_icon = root, cfg, make_icon
-        self.status, self.progress, self.quit = status, progress, quit
-        self.auto = tk.BooleanVar(value=cfg.get("auto_update", True))
-        self.release = None
-        self.about_lbl = None
-        ttk.Style(root).configure("Link.TLabel", foreground="#0067c0")
-        about = ttk.Label(bar, text=f"About · v{VERSION}", style="Link.TLabel", cursor="hand2")
-        about.pack(side="right", padx=(0, self._px(16)))
-        about.bind("<Button-1>", lambda e: self.show_about())
-        self.link = ttk.Label(bar, text="", style="Link.TLabel", cursor="hand2", font=("Segoe UI Semibold", 10))
-        self.link.bind("<Button-1>", lambda e: self.offer())
-        if self.auto.get() and time.time() - cfg.get("last_update_check", 0) > 20 * 3600:
-            root.after(2500, lambda: self.check(quiet=True))
-
-    def state(self):
-        return {"auto_update": self.auto.get(), "last_update_check": self.cfg.get("last_update_check", 0)}
-
-    def _px(self, n):
-        return round(n * self.root.winfo_fpixels("1i") / 96)
-
-    def _dialog(self, title):
-        win = tk.Toplevel(self.root)
-        win.withdraw()
-        win.title(title)
-        win.transient(self.root)
-        win.resizable(False, False)
-        body = ttk.Frame(win, padding=self._px(18))
-        body.pack(fill="both", expand=True)
-        return win, body
-
-    def _show(self, win):
-        win.bind("<Escape>", lambda e: win.destroy())
-        win.update_idletasks()
-        win.geometry(f"+{self.root.winfo_rootx() + self._px(110)}+{self.root.winfo_rooty() + self._px(110)}")
-        win.deiconify()
-        win.grab_set()
-
-    def show_about(self):
-        win, body = self._dialog(f"About {APP_NAME}")
-        P = self._px
-        self._icon = ImageTk.PhotoImage(self.make_icon(P(56)))
-        ttk.Label(body, image=self._icon).grid(row=0, column=0, rowspan=3, sticky="n", padx=(0, P(14)))
-        ttk.Label(body, text=APP_NAME, font=("Segoe UI Semibold", 13)).grid(row=0, column=1, sticky="w")
-        ttk.Label(body, text=f"Version {VERSION}  ·  CK Suite  ·  © CK Software  ·  MIT License",
-                  foreground="#5f6368").grid(row=1, column=1, sticky="w")
-        link = ttk.Label(body, text=f"github.com/{REPO}", style="Link.TLabel", cursor="hand2")
-        link.grid(row=2, column=1, sticky="w", pady=(P(4), 0))
-        link.bind("<Button-1>", lambda e: _webbrowser.open(f"https://github.com/{REPO}"))
-        ttk.Separator(body).grid(row=3, column=0, columnspan=2, sticky="ew", pady=P(14))
-        ttk.Checkbutton(body, text="Check for updates automatically (once a day)", variable=self.auto).grid(
-            row=4, column=0, columnspan=2, sticky="w")
-        self.about_lbl = ttk.Label(body, text="", foreground="#5f6368")
-        self.about_lbl.grid(row=5, column=0, columnspan=2, sticky="w", pady=(P(8), 0))
-        bar = ttk.Frame(body)
-        bar.grid(row=6, column=0, columnspan=2, sticky="ew", pady=(P(14), 0))
-        ttk.Button(bar, text="Close", command=win.destroy).pack(side="right")
-        ttk.Button(bar, text="Check for Updates Now",
-                   command=lambda: self.check(quiet=False)).pack(side="right", padx=(0, P(8)))
-        self._show(win)
-
-    def _about(self, text):
-        if self.about_lbl is not None and self.about_lbl.winfo_exists():
-            self.about_lbl.configure(text=text)
-
-    def check(self, quiet):
-        self._about("Checking…")
-        result = {}
-
-        def work():
-            try:
-                result["rel"] = latest_release()
-            except Exception:
-                result["rel"] = None
-
-        t = threading.Thread(target=work, daemon=True)
-        t.start()
-
-        def done():
-            if t.is_alive():
-                self.root.after(200, done)
-                return
-            self.cfg["last_update_check"] = time.time()
-            rel = result.get("rel")
-            if rel is None:
-                self._about("Couldn't reach GitHub. Check your internet connection.")
-            elif not rel:
-                self._about(f"No releases published yet. You have version {VERSION}.")
-            elif version_tuple(rel["version"]) > version_tuple(VERSION):
-                self.release = rel
-                self.link.configure(text=f"⬆ Version {rel['version']} is available")
-                self.link.pack(side="right", padx=(0, self._px(16)))
-                self._about(f"Version {rel['version']} is available (you have {VERSION}).")
-                if not quiet:
-                    self.offer()
-            else:
-                self._about(f"You have the latest version ({VERSION}).")
-
-        done()
-
-    def offer(self):
-        rel = self.release
-        if not rel:
-            return
-        win, body = self._dialog("Update available")
-        P = self._px
-        ttk.Label(body, text=f"{APP_NAME} {rel['version']} is available", font=("Segoe UI Semibold", 12)).pack(anchor="w")
-        ttk.Label(body, text=f"You have version {VERSION}. What's new:",
-                  foreground="#5f6368").pack(anchor="w", pady=(P(2), P(8)))
-        notes = tk.Text(body, height=10, width=64, wrap="word", font=("Segoe UI", 10), relief="flat",
-                        highlightthickness=1, highlightbackground="#d9d9d9", padx=P(8), pady=P(6))
-        notes.insert("1.0", rel["notes"].strip() or "(no release notes)")
-        notes.configure(state="disabled")
-        notes.pack(fill="both", expand=True)
-        bar = ttk.Frame(body)
-        bar.pack(fill="x", pady=(P(12), 0))
-        if getattr(sys, "frozen", False) and rel["url"]:
-            ttk.Button(bar, text="Update Now", default="active",
-                       command=lambda: (win.destroy(), self.install(rel))).pack(side="right")
-        else:  # running from source: send them to the release page
-            ttk.Button(bar, text="Open Download Page", default="active",
-                       command=lambda: (win.destroy(), _webbrowser.open(rel["page"]))).pack(side="right")
-        ttk.Button(bar, text="Later", command=win.destroy).pack(side="right", padx=(0, P(8)))
-        self._show(win)
-
-    def install(self, rel):
-        """Download the installer, run it quietly and close; the installer reopens the program."""
-        if getattr(self.root, "busy", False):
-            messagebox.showinfo(APP_NAME, "Wait for the current job to finish, then update.")
-            return
-        self.status(f"Downloading version {rel['version']}…", "muted")
-        self.progress(0)
-        dest = os.path.join(_tempfile.gettempdir(), "CK Suite updates", os.path.basename(rel["url"]))
-        st = {"frac": 0.0}
-
-        def work():
-            try:
-                os.makedirs(os.path.dirname(dest), exist_ok=True)
-                req = _urlrequest.Request(rel["url"], headers={"User-Agent": "CK-Suite-Updater"})
-                with _urlrequest.urlopen(req, timeout=30) as r, open(dest, "wb") as f:
-                    total, got = int(r.headers.get("Content-Length") or 0), 0
-                    while chunk := r.read(256 * 1024):
-                        f.write(chunk)
-                        got += len(chunk)
-                        st["frac"] = got / total if total else 0
-                st["ok"] = True
-            except Exception as e:
-                st["err"] = e
-
-        t = threading.Thread(target=work, daemon=True)
-        t.start()
-
-        def watch():
-            self.progress(st["frac"] * 100)
-            if t.is_alive():
-                self.root.after(150, watch)
-                return
-            self.progress(None)
-            if not st.get("ok"):
-                self.status(f"Download failed: {st.get('err')}", "error")
-                return
-            try:
-                subprocess.Popen([dest, "/SILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CLOSEAPPLICATIONS"])
-            except OSError as e:
-                self.status(f"Couldn't start the installer: {e}", "error")
-                return
-            self.quit()
-
-        watch()
-# ===================================================================== end CK UI kit
 
 IS_WIN = platform.system() == "Windows"
 IS_MAC = platform.system() == "Darwin"
@@ -1236,11 +563,12 @@ class App(tk.Tk):
     def __init__(self):
         enable_dpi_awareness()
         super().__init__()
-        init_window(self, "CK Video Compressor", (1260, 840), (1020, 660), make_icon)
+        init_window(self, "CK Video Compressor", (1180, 760), (980, 620), make_icon)
         self.cfg_store = load_config()
         self.ffmpeg = find_tool("ffmpeg", self.cfg_store.get("ffmpeg"))
         self.ffprobe = sibling_tool(self.ffmpeg, "ffprobe") if self.ffmpeg else None
         c = self.cfg_store
+        self.dark_mode = tk.BooleanVar(value=bool(c.get("dark_mode", False)))
         self.profile_var = tk.StringVar(value=c.get("profile", "balanced"))
         self.limit_var = tk.StringVar(value=c.get("limit", "none"))
         self.custom_mb = tk.StringVar(value=c.get("custom_mb", "50"))
@@ -1258,17 +586,32 @@ class App(tk.Tk):
         self._workdir = None
 
         self.build_ui()
+        smooth_resize(self)
         enable_file_drop(self, self.add_paths)
         self.protocol("WM_DELETE_WINDOW", self.on_close)
         self.after(100, self.poll)
         self.after(300, self.ensure_ffmpeg)
         self.warm_encoders()
 
+        self.bind("<Control-o>", lambda e: self.browse_videos())
+        self.bind("<Control-O>", lambda e: self.browse_videos())
+        self.bind("<Control-d>", lambda e: self.browse_out())
+        self.bind("<Control-D>", lambda e: self.browse_out())
+        self.bind("<Control-e>", lambda e: self.reveal_last())
+        self.bind("<Control-E>", lambda e: self.reveal_last())
+        self.bind("<Control-Return>", lambda e: self.start())
+        self.bind("<F5>", lambda e: self.start())
+        self.bind("<Control-t>", lambda e: self.toggle_dark_mode())
+        self.bind("<Control-T>", lambda e: self.toggle_dark_mode())
+        self.bind("<F3>", lambda e: self.toggle_dark_mode())
+        self.bind("<Control-Key-1>", lambda e: self.tabs.select(0))
+        self.bind("<Control-Key-2>", lambda e: self.tabs.select(1))
+
     # ---- layout ------------------------------------------------------------------
     def build_ui(self):
-        build_header(self, "Video Compressor",
-                     "Shrink videos with FFmpeg: pick a profile or a size limit, see the predicted size, "
-                     "and compress one or many.")
+        self.build_menubar()
+        self.build_toolbar()
+
         self.footer = Footer(self)
         self.start_btn = self.footer.button("Compress All", self.start, primary=True)
         self.footer.button("Show in Folder", self.reveal_last)
@@ -1278,7 +621,7 @@ class App(tk.Tk):
 
         body = ttk.Frame(self, padding=(px(16), px(12), px(16), px(12)))
         body.pack(fill="both", expand=True)
-        left = ttk.Frame(body, width=px(450))
+        left = ttk.Frame(body, width=px(410))
         left.pack(side="left", fill="y")
         left.pack_propagate(False)
         sf = ScrollFrame(left, padding=(0, 0, px(6), 0))
@@ -1288,7 +631,7 @@ class App(tk.Tk):
         s = section(panel, "Compression profile")
         for key, (title, desc) in self.PROFILES.items():
             ttk.Radiobutton(s, text=title, value=key, variable=self.profile_var).pack(anchor="w", pady=(px(4), 0))
-            hint(s, desc, wrap=360, padx=(px(24), 0))
+            hint(s, desc, wrap=330, padx=(px(24), 0))
 
         s = section(panel, "Size limit")
         self.limit_row = ttk.Frame(s)
@@ -1302,7 +645,7 @@ class App(tk.Tk):
         self.custom_entry = ttk.Entry(row, textvariable=self.custom_mb, width=7)
         self.custom_entry.pack(side="left", padx=px(6))
         ttk.Label(row, text="MB").pack(side="left")
-        self.limit_hint = hint(s, "", wrap=360, pady=(px(6), 0))
+        self.limit_hint = hint(s, "", wrap=350, pady=(px(6), 0))
 
         s = section(panel, "Picture & sound")
         s.columnconfigure(1, weight=1)
@@ -1312,7 +655,7 @@ class App(tk.Tk):
         ttk.Label(s, text="Audio").grid(row=1, column=0, sticky="w")
         ttk.Combobox(s, textvariable=self.aud_var, values=list(self.AUDIO), state="readonly", width=16).grid(
             row=1, column=1, sticky="w", padx=px(8), pady=px(2))
-        hint(s, "Resolution only ever scales down. Super Compressed stays at 480p or lower.", wrap=360,
+        hint(s, "Resolution only ever scales down. Super Compressed stays at 480p or lower.", wrap=350,
              grid=dict(row=2, column=0, columnspan=2, sticky="w", pady=(px(4), 0)))
 
         s = section(panel, "Output")
@@ -1322,11 +665,11 @@ class App(tk.Tk):
         ttk.Label(s, text="Container").grid(row=2, column=0, sticky="w", pady=(px(6), 0))
         segmented(s, [(".mp4", "MP4"), (".mkv", "MKV")], self.container).grid(
             row=2, column=1, columnspan=2, sticky="w", padx=px(8), pady=(px(6), 0))
-        hint(s, "Leave \"Save in\" empty to save next to each video.", wrap=360,
+        hint(s, "Leave \"Save in\" empty to save next to each video.", wrap=350,
              grid=dict(row=3, column=0, columnspan=3, sticky="w", pady=(px(6), 0)))
 
         s = section(panel, "FFmpeg")
-        self.ff_lbl = ttk.Label(s, text="", style="Muted.TLabel", wraplength=px(360))
+        self.ff_lbl = ttk.Label(s, text="", style="Muted.TLabel", wraplength=px(350))
         self.ff_lbl.pack(anchor="w")
         ttk.Button(s, text="Locate FFmpeg…", command=lambda: self.ensure_ffmpeg(force=True)).pack(anchor="w", pady=(px(6), 0))
 
@@ -1340,8 +683,8 @@ class App(tk.Tk):
         ttk.Button(bar, text="Add Videos…", command=self.browse_videos).pack(side="left")
         ttk.Button(bar, text="Clear", command=self.clear).pack(side="right")
         ttk.Button(bar, text="Remove", command=self.remove).pack(side="right", padx=(0, px(6)))
-        tf = make_tree(vt, [("file", "Video", 260, True), ("length", "Length", 80, False), ("size", "Size", 90, False),
-                            ("pred", "Predicted", 120, False), ("status", "Status", 170, True)], height=7,
+        tf = make_tree(vt, [("file", "Video", 240, True), ("length", "Length", 80, False), ("size", "Size", 85, False),
+                            ("pred", "Predicted", 110, False), ("status", "Status", 150, True)], height=7,
                        selectmode="browse")
         tf.pack(fill="both", expand=True)
         self.tree = tf.tree
@@ -1390,6 +733,227 @@ class App(tk.Tk):
             var.trace_add("write", lambda *_: self.on_option_change())
         self.refresh_ffmpeg_label()
         self.on_option_change()
+        if self.dark_mode.get():
+            self.apply_dark_mode()
+        self.update_title()
+
+    def build_menubar(self):
+        """Top menu bar: File | Edit | View | Profiles | Help."""
+        mb_bg = "#1e1e1e" if DARK_MODE else "#ffffff"
+        mb_fg = "#e8eaed" if DARK_MODE else "#1a1a1a"
+        bar = tk.Frame(self, bg=mb_bg, height=px(28))
+        bar.pack(fill="x")
+        self.menubar_frame = bar
+
+        self._menu_btns = []
+        self._menus = []
+
+        def add_menu(label, underline_idx, items):
+            m = tk.Menu(bar, tearoff=0, font=("Segoe UI", 10),
+                        bg="#252526" if DARK_MODE else "#ffffff",
+                        fg="#e8eaed" if DARK_MODE else "#1a1a1a",
+                        activebackground="#094771" if DARK_MODE else ACCENT,
+                        activeforeground="#ffffff")
+            self._menus.append(m)
+            for it in items:
+                if it is None:
+                    m.add_separator()
+                elif isinstance(it, tuple) and len(it) >= 2 and it[0] == "__check__":
+                    _, text, var, cmd, acc = it
+                    m.add_checkbutton(label=text, variable=var, command=cmd,
+                                      accelerator=acc if acc else "")
+                elif len(it) == 3:
+                    text, cmd, acc = it
+                    m.add_command(label=text, command=cmd, accelerator=acc if acc else "")
+                elif len(it) == 4:
+                    text, cmd, acc, u = it
+                    m.add_command(label=text, command=cmd, accelerator=acc if acc else "", underline=u)
+
+            btn = tk.Label(bar, text=label, bg=mb_bg, fg=mb_fg, font=("Segoe UI", 10),
+                           underline=underline_idx, padx=px(8), pady=px(4), cursor="hand2")
+            btn.pack(side="left")
+            self._menu_btns.append(btn)
+
+            def post(e=None):
+                x = btn.winfo_rootx()
+                y = btn.winfo_rooty() + btn.winfo_height()
+                try:
+                    m.tk_popup(x, y)
+                finally:
+                    m.grab_release()
+
+            btn.bind("<Button-1>", post)
+            btn.bind("<Enter>", lambda e: btn.configure(bg="#323236" if DARK_MODE else HOVER))
+            btn.bind("<Leave>", lambda e: btn.configure(bg="#1e1e1e" if DARK_MODE else "#ffffff"))
+
+        add_menu("File", 0, [
+            ("Add Videos…", self.browse_videos, "Ctrl+O", 0),
+            ("Set Output Folder…", self.browse_out, "Ctrl+D", 4),
+            ("Show in Folder", self.reveal_last, "Ctrl+E", 0),
+            None,
+            ("Compress All", self.start, "Ctrl+Enter", 0),
+            None,
+            ("Exit", self.on_close, "Alt+F4", 1),
+        ])
+
+        add_menu("Edit", 0, [
+            ("Remove Selected", self.remove, "Del", 0),
+            ("Clear Video Queue", self.clear, "", 0),
+            None,
+            ("Apply Trim", self.apply_trim, "Enter", 0),
+            ("Clear Trim", self.clear_trim, "", 6),
+        ])
+
+        add_menu("View", 0, [
+            ("Videos Tab", lambda: self.tabs.select(0), "Ctrl+1", 0),
+            ("Activity Tab", lambda: self.tabs.select(1), "Ctrl+2", 0),
+            None,
+            ("__check__", "Dark Mode", self.dark_mode, self.apply_dark_mode, "Ctrl+T"),
+        ])
+
+        add_menu("Profiles", 0, [
+            ("Balanced (x264 medium, CRF 23)", lambda: self.profile_var.set("balanced"), "", 0),
+            ("Fastest / Lowest Power", lambda: self.profile_var.set("fast"), "", 0),
+            ("Smallest File (SVT-AV1 / x265)", lambda: self.profile_var.set("best"), "", 0),
+            ("Super Compressed (< 20 MB)", lambda: self.profile_var.set("super"), "", 0),
+            None,
+            ("No Size Limit", lambda: self.limit_var.set("none"), "", 0),
+            ("Discord (10 MB)", lambda: self.limit_var.set("10"), "", 0),
+            ("WhatsApp (16 MB)", lambda: self.limit_var.set("16"), "", 0),
+            ("Email (25 MB)", lambda: self.limit_var.set("25"), "", 0),
+        ])
+
+        add_menu("Help", 0, [
+            ("Locate FFmpeg…", lambda: self.ensure_ffmpeg(force=True), "", 0),
+            ("Check for Updates…", lambda: self.updater.check(quiet=False), "", 0),
+            None,
+            (f"About {APP_NAME}", lambda: self.updater.show_about(), "", 0),
+        ])
+
+        sep_bg = "#2d2d30" if DARK_MODE else "#e5e5e5"
+        self.menubar_sep = tk.Frame(self, bg=sep_bg, height=1)
+        self.menubar_sep.pack(fill="x")
+
+    def build_toolbar(self):
+        bg = ttk.Style(self).lookup("TFrame", "background") or "#f0f0f0"
+        bar = tk.Frame(self, bg=bg, padx=px(8), pady=px(3))
+        bar.pack(fill="x")
+        self.toolbar_bar = bar
+        self._tb_icons = {}
+        self._tb_btns = []
+        self._tb_seps = []
+        icon_px = px(18)
+        cell_px = px(24)
+        self.tb_hint = tk.Label(bar, text="", bg=bg, fg=MUTED, font=("Segoe UI", 9))
+        self.tb_hint.pack(side="right", padx=(0, px(6)))
+
+        def set_tb_hint(text):
+            self.tb_hint.configure(text=text)
+            self.set_status(text or "Ready")
+
+        def make_btn(kind, tip, cmd):
+            icon = make_toolbar_icon(kind, icon_px, dark=DARK_MODE)
+            self._tb_icons[kind] = icon
+            btn = tk.Label(bar, image=icon, width=cell_px, height=cell_px, bg=bg, bd=0,
+                           highlightthickness=1, highlightbackground=bg)
+            btn.pack(side="left", padx=px(1))
+            self._tb_btns.append((kind, btn))
+
+            def on_enter(e=None):
+                hov = "#323236" if DARK_MODE else HOVER
+                bd_hov = "#4cc2ff" if DARK_MODE else "#99d1ff"
+                btn.configure(bg=hov, highlightbackground=bd_hov)
+
+            def on_leave(e=None):
+                cur_bg = "#252526" if DARK_MODE else (ttk.Style(self).lookup("TFrame", "background") or "#f0f0f0")
+                btn.configure(bg=cur_bg, highlightbackground=cur_bg)
+
+            def on_press(e=None):
+                pr_bg = "#094771" if DARK_MODE else "#cce4f7"
+                btn.configure(bg=pr_bg, highlightbackground=ACCENT)
+
+            def on_release(e=None):
+                on_enter()
+                if cmd:
+                    cmd()
+
+            btn.bind("<Enter>", on_enter)
+            btn.bind("<Leave>", on_leave)
+            btn.bind("<Button-1>", on_press)
+            btn.bind("<ButtonRelease-1>", on_release)
+            attach_tooltip(btn, tip, set_tb_hint)
+            return btn
+
+        def make_sep():
+            sep_bg = "#3c4043" if DARK_MODE else BORDER
+            s = tk.Frame(bar, width=1, height=cell_px - px(4), bg=sep_bg)
+            s.pack(side="left", padx=px(4), pady=px(2))
+            self._tb_seps.append(s)
+
+        make_btn("add_videos", "Add Videos… (Ctrl+O)", self.browse_videos)
+        make_btn("open_folder", "Set Output Folder… (Ctrl+D)", self.browse_out)
+        make_btn("clear", "Clear Video Queue", self.clear)
+        make_sep()
+        make_btn("trim", "Clear Trim on Selected Video", self.clear_trim)
+        make_btn("compress", "Compress All Videos (Ctrl+Enter / F5)", self.start)
+        make_btn("reveal", "Show Last Output in Folder (Ctrl+E)", self.reveal_last)
+        make_sep()
+        make_btn("theme", "Toggle Light / Dark Mode (Ctrl+T)", self.toggle_dark_mode)
+
+        sep = tk.Frame(self, bg=BORDER, height=1)
+        sep.pack(fill="x")
+        self._tb_bottom_sep = sep
+
+    def toggle_dark_mode(self):
+        self.dark_mode.set(not self.dark_mode.get())
+        self.apply_dark_mode()
+
+    def apply_dark_mode(self):
+        dark = bool(self.dark_mode.get())
+        apply_theme(self, dark)
+        mb_bg = "#1e1e1e" if dark else "#ffffff"
+        mb_fg = "#e8eaed" if dark else "#1a1a1a"
+        tb_bg = "#252526" if dark else (ttk.Style(self).lookup("TFrame", "background") or "#f0f0f0")
+        sep_bg = "#3c4043" if dark else BORDER
+        if hasattr(self, "menubar_frame"):
+            self.menubar_frame.configure(bg=mb_bg)
+            self.menubar_sep.configure(bg="#2d2d30" if dark else "#e5e5e5")
+            for b in self._menu_btns:
+                b.configure(bg=mb_bg, fg=mb_fg)
+        for m in getattr(self, "_menus", ()):
+            m.configure(
+                bg="#252526" if dark else "#ffffff",
+                fg="#e8eaed" if dark else "#1a1a1a",
+                activebackground="#094771" if dark else ACCENT,
+                activeforeground="#ffffff",
+                selectcolor="#4cc2ff" if dark else "#1a1a1a",
+            )
+        if hasattr(self, "toolbar_bar"):
+            self.toolbar_bar.configure(bg=tb_bg)
+            self.tb_hint.configure(bg=tb_bg, fg="#9aa0a6" if dark else MUTED)
+            icon_px = px(18)
+            for kind, btn in self._tb_btns:
+                icon = make_toolbar_icon(kind, icon_px, dark=dark)
+                self._tb_icons[kind] = icon
+                btn.configure(image=icon, bg=tb_bg, highlightbackground=tb_bg)
+            for s in self._tb_seps:
+                s.configure(bg=sep_bg)
+        if hasattr(self, "_tb_bottom_sep"):
+            self._tb_bottom_sep.configure(bg=sep_bg)
+
+    def set_status(self, text, kind="muted"):
+        if hasattr(self, "footer"):
+            self.footer.set_status(text, kind)
+
+    def update_title(self, video_name=None):
+        if not video_name:
+            iid, v = self.selected() if hasattr(self, "selected") else (None, None)
+            if v and getattr(v, "path", None):
+                video_name = os.path.basename(v.path)
+        if video_name:
+            self.title(f"{APP_NAME} v{VERSION} - {video_name}")
+        else:
+            self.title(f"{APP_NAME} v{VERSION}")
 
     # ---- settings --------------------------------------------------------------------
     def target_mb(self):
@@ -1496,6 +1060,7 @@ class App(tk.Tk):
         for iid in self.tree.selection():
             self.tree.delete(iid)
             self.videos.pop(iid, None)
+        self.update_title()
         self.show_selected()
 
     def clear(self):
@@ -1503,6 +1068,7 @@ class App(tk.Tk):
             return
         self.tree.delete(*self.tree.get_children())
         self.videos.clear()
+        self.update_title()
         self.show_selected()
 
     def probe_async(self, v):
@@ -1542,12 +1108,14 @@ class App(tk.Tk):
     def show_selected(self):
         iid, v = self.selected()
         if not v:
+            self.update_title()
             self.sel_name.configure(text="Drop videos anywhere on this window, or use Add Videos…" if not self.videos
                                     else "Click a video to see its details.")
             self.sel_info.configure(text="")
             self.pred_size.configure(text="—")
             self.pred_time.configure(text="—")
             return
+        self.update_title(os.path.basename(v.path))
         self.sel_name.configure(text=os.path.basename(v.path))
         if v.error:
             self.sel_info.configure(text=f"Couldn't read this video: {v.error}")
@@ -1826,7 +1394,7 @@ class App(tk.Tk):
             self.do_cancel()
         self.cfg_store.update(profile=self.profile_var.get(), limit=self.limit_var.get(), custom_mb=self.custom_mb.get(),
                               res=self.res_var.get(), audio=self.aud_var.get(), out_dir=self.out_dir.get().strip(),
-                              suffix=self.suffix.get(), container=self.container.get())
+                              suffix=self.suffix.get(), container=self.container.get(), dark_mode=self.dark_mode.get())
         self.cfg_store.update(self.updater.state())
         save_config(self.cfg_store)
         self.destroy()
